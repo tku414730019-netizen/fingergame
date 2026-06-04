@@ -101,6 +101,10 @@ let BOTTOM_H = 68;
 // ── 當前遊戲題目 ─────────────────────────────────────────────
 let currentQuestion = { text: '', note: '' };
 
+// ── 確認彈窗狀態 ─────────────────────────────────────────────
+let confirmMode = '';   // 要前往的模式：'LEARN' | 'GAME'
+let confirmFrom = '';   // 來源狀態：'IDLE' | 'LEARN'
+
 // ── 色彩常數（教育科技風格配色）────────────────────────────
 const C = {
   BG:       '#0F172A',  // 深夜藍（主背景）
@@ -208,10 +212,11 @@ function draw() {
     // 3. 根據遊戲狀態繪製右側主畫面
     if (!modelLoaded) {
       _drawLoading();
-    } else if (gameState === 'IDLE')   { _drawIdle();
-    } else if (gameState === 'LEARN')  { _drawLearn();
-    } else if (gameState === 'GAME')   { _drawGame();
-    } else if (gameState === 'RESULT') { _drawResult();
+    } else if (gameState === 'IDLE')    { _drawIdle();
+    } else if (gameState === 'CONFIRM') { _drawConfirm();
+    } else if (gameState === 'LEARN')   { _drawLearn();
+    } else if (gameState === 'GAME')    { _drawGame();
+    } else if (gameState === 'RESULT')  { _drawResult();
     }
 
     // 4. 遊戲邏輯更新
@@ -338,10 +343,11 @@ function _drawHeader() {
 
   // 狀態標籤（彩色小徽章）
   const stateInfo = {
-    IDLE:   { label: '等待開始', color: C.MUTED },
-    LEARN:  { label: '學習模式', color: C.PRIMARY },
-    GAME:   { label: '遊戲模式', color: C.SUCCESS },
-    RESULT: { label: '結果畫面', color: C.WARNING },
+    IDLE:    { label: '等待開始', color: C.MUTED },
+    CONFIRM: { label: '確認中',   color: C.WARNING },
+    LEARN:   { label: '學習模式', color: C.PRIMARY },
+    GAME:    { label: '遊戲模式', color: C.SUCCESS },
+    RESULT:  { label: '結果畫面', color: C.WARNING },
   };
   const si = stateInfo[gameState];
   if (si) {
@@ -1110,6 +1116,108 @@ function _drawStatCard(x, y, w, h, label, value, accentColor) {
 }
 
 // ══════════════════════════════════════════════════════════════
+//   繪製：CONFIRM 確認彈窗
+// ══════════════════════════════════════════════════════════════
+
+/**
+ * 確認彈窗：進入目標模式前讓玩家確認
+ * 👌 OK = 確認進入   ✊ 握拳 = 取消
+ */
+function _drawConfirm() {
+  const cx = PANEL_X + PANEL_W / 2;
+  const panelTop = PANEL_Y;
+  const panelBot = height - BOTTOM_H;
+  const cy = panelTop + (panelBot - panelTop) / 2;
+
+  const modeLabel = { LEARN: '學習模式', GAME: '遊戲模式' };
+  const modeEmoji = { LEARN: '📚', GAME: '🎮' };
+  const modeNote  = {
+    LEARN: '依序練習所有手勢，有即時辨識回饋',
+    GAME:  '90 秒倒計時答題挑戰，答對得分',
+  };
+  const warningText = (confirmFrom === 'LEARN' && confirmMode === 'GAME')
+    ? '⚠️ 將中止目前的學習進度'
+    : modeNote[confirmMode] || '';
+
+  const mw = min(PANEL_W - 40, 340);
+  const mh = 226;
+  const mx = cx - mw / 2;
+  const my = cy - mh / 2;
+
+  // 半透明遮罩覆蓋右側面板
+  fill(0, 0, 0, 100);
+  noStroke();
+  rect(PANEL_X, panelTop, PANEL_W, panelBot - panelTop);
+
+  // 彈窗本體
+  fill(C.PANEL);
+  stroke(C.PRIMARY);
+  strokeWeight(2);
+  rect(mx, my, mw, mh, 14);
+  noStroke();
+
+  // 頂部彩條
+  fill(confirmMode === 'GAME' ? C.SUCCESS : C.PRIMARY);
+  rect(mx, my, mw, 5, 14, 14, 0, 0);
+
+  // 標題
+  fill(C.TEXT);
+  textSize(21);
+  textStyle(BOLD);
+  textAlign(CENTER, TOP);
+  text(`${modeEmoji[confirmMode] || ''}  進入${modeLabel[confirmMode]}？`, cx, my + 20);
+  textStyle(NORMAL);
+
+  // 說明文字
+  fill(confirmFrom === 'LEARN' && confirmMode === 'GAME' ? C.WARNING : C.MUTED);
+  textSize(12);
+  text(warningText, cx, my + 58);
+
+  // ── 兩個操作按鈕 ────────────────────────────────────
+  const btnW = floor((mw - 36) / 2);
+  const btnH = 62;
+  const btnY = my + 88;
+
+  // 左：確認（OK）
+  const okActive = confirmedGesture.gesture === 'OK';
+  fill(okActive ? C.SUCCESS : C.CARD);
+  stroke(C.SUCCESS); strokeWeight(1.5);
+  rect(mx + 12, btnY, btnW, btnH, 8);
+  noStroke();
+
+  textAlign(CENTER, TOP);
+  fill(okActive ? C.BG : C.TEXT);
+  textSize(24); text('👌', mx + 12 + btnW / 2, btnY + 8);
+  textSize(14); textStyle(BOLD);
+  text('OK  確認', mx + 12 + btnW / 2, btnY + 38);
+  textStyle(NORMAL);
+  fill(okActive ? C.BG : C.MUTED);
+  textSize(11); text('比 OK 進入', mx + 12 + btnW / 2, btnY + btnH - 12);
+
+  // 右：取消（FIST）
+  const fistActive = confirmedGesture.gesture === 'FIST';
+  fill(fistActive ? '#7C1D1D' : C.CARD);
+  stroke(C.DANGER); strokeWeight(1.5);
+  rect(mx + 24 + btnW, btnY, btnW, btnH, 8);
+  noStroke();
+
+  fill(fistActive ? C.TEXT : C.TEXT);
+  textSize(24); text('✊', mx + 24 + btnW + btnW / 2, btnY + 8);
+  textSize(14); textStyle(BOLD);
+  fill(fistActive ? '#FCA5A5' : C.DANGER);
+  text('握拳  取消', mx + 24 + btnW + btnW / 2, btnY + 38);
+  textStyle(NORMAL);
+  fill(C.MUTED);
+  textSize(11); text('握拳返回', mx + 24 + btnW + btnW / 2, btnY + btnH - 12);
+
+  // 底部提示
+  fill(C.MUTED);
+  textSize(11);
+  textAlign(CENTER, BOTTOM);
+  text('保持手勢約 1 秒即可確認', cx, my + mh - 8);
+}
+
+// ══════════════════════════════════════════════════════════════
 //   遊戲邏輯更新（每幀執行）
 // ══════════════════════════════════════════════════════════════
 
@@ -1171,19 +1279,34 @@ function _handleGestureInput() {
   // ── IDLE 狀態 ─────────────────────────────────────────
   if (gameState === 'IDLE') {
     if (gesture === 'ONE') {
-      _enterLearn();
+      _enterConfirm('LEARN', 'IDLE');
       acted = true;
     } else if (gesture === 'TWO') {
-      _enterGame();
+      _enterConfirm('GAME', 'IDLE');
+      acted = true;
+    }
+  }
+
+  // ── CONFIRM 確認彈窗 ──────────────────────────────────
+  else if (gameState === 'CONFIRM') {
+    if (gesture === 'OK') {
+      // 確認：前往目標模式
+      if (confirmMode === 'LEARN') _enterLearn();
+      else if (confirmMode === 'GAME') _enterGame();
+      acted = true;
+    } else if (gesture === 'FIST') {
+      // 取消：回到來源狀態
+      gameState = confirmFrom;
+      classifier.reset();
       acted = true;
     }
   }
 
   // ── LEARN 狀態 ────────────────────────────────────────
   else if (gameState === 'LEARN') {
-    // 比 2 跳過學習，直接進遊戲
+    // 比 2 → 先確認再跳到遊戲
     if (gesture === 'TWO') {
-      _enterGame();
+      _enterConfirm('GAME', 'LEARN');
       acted = true;
     }
     // 比出目標手勢（且尚未在成功等待中）
@@ -1195,9 +1318,7 @@ function _handleGestureInput() {
 
   // ── GAME 狀態 ─────────────────────────────────────────
   else if (gameState === 'GAME') {
-    // 回饋動畫播放中，暫不接受輸入
     if (correctFeedback || wrongFeedback) return;
-
     if (gesture === currentTarget) {
       _handleCorrect();
       acted = true;
@@ -1210,7 +1331,7 @@ function _handleGestureInput() {
   // ── RESULT 狀態 ───────────────────────────────────────
   else if (gameState === 'RESULT') {
     if (gesture === 'TWO') {
-      _enterGame();
+      _enterConfirm('GAME', 'RESULT');
       acted = true;
     } else if (gesture === 'OK') {
       _enterIdle();
@@ -1259,7 +1380,7 @@ function _handleWrong(wrongGesture) {
   wrongFeedbackTimer = millis();
 }
 
-/** 隨機選擇下一道題（避免與當前題目重複），並抽取對應的教育題目 */
+/** 隨機選擇下一道題，並從題庫抽取對應的教育問題 */
 function _pickNewTarget() {
   let newTarget;
   let tries = 0;
@@ -1272,9 +1393,13 @@ function _pickNewTarget() {
   // 從該手勢的題庫中隨機選一題
   const g = GESTURES[currentTarget];
   if (g && g.questions && g.questions.length > 0) {
-    currentQuestion = g.questions[floor(random(g.questions.length))];
+    const qIdx = floor(random(g.questions.length));
+    currentQuestion = g.questions[qIdx];
+    console.log(`📝 題目：${currentQuestion.text} → ${g.label}`);
   } else {
-    currentQuestion = { text: `請做出 ${g.label} 手勢`, note: '' };
+    // 若 gestures.js 沒有 questions（舊版檔案），用預設文字
+    currentQuestion = { text: `請做出手勢：${g ? g.label : '?'}`, note: g ? g.instruction : '' };
+    console.warn('⚠️ 此手勢沒有 questions 題庫，請確認 gestures.js 已更新至最新版本');
   }
 }
 
@@ -1286,6 +1411,14 @@ function _enterIdle() {
   gameState = 'IDLE';
   classifier.reset();
   console.log('→ IDLE');
+}
+
+function _enterConfirm(mode, from) {
+  confirmMode = mode;
+  confirmFrom = from;
+  gameState = 'CONFIRM';
+  classifier.reset();
+  console.log(`→ CONFIRM (${mode})`);
 }
 
 function _enterLearn() {
