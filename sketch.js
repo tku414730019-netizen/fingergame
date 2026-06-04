@@ -90,10 +90,16 @@ let finalCorrect  = 0;
 let finalTotal    = 0;
 
 // ── 版面參數（由 _computeLayout() 計算）─────────────────────
-let CAM_X, CAM_Y, CAM_W, CAM_H;  // 攝影機顯示區域
-let PANEL_X, PANEL_W;             // 右側遊戲面板
-const HEADER_H = 58;              // 標題列高度（px）
-const BOTTOM_H = 68;              // 底部信心值列高度（px）
+let CAM_X, CAM_Y, CAM_W, CAM_H;          // 攝影機保留區域（含 letterbox 空間）
+let CAM_DRAW_X, CAM_DRAW_Y,
+    CAM_DRAW_W, CAM_DRAW_H;              // 實際影像繪製區域（長寬比修正後）
+let PANEL_X, PANEL_W, PANEL_Y;           // 右側遊戲面板
+let isMobile = false;                    // 是否為窄螢幕 / 縱向模式
+const HEADER_H = 58;
+let BOTTOM_H = 68;
+
+// ── 當前遊戲題目 ─────────────────────────────────────────────
+let currentQuestion = { text: '', note: '' };
 
 // ── 色彩常數（教育科技風格配色）────────────────────────────
 const C = {
@@ -126,7 +132,8 @@ function setup() {
 
   // ── webcam ────────────────────────────────────────────────
   video = createCapture(VIDEO, () => { console.log('✅ webcam 就緒'); });
-  video.size(640, 480);
+  // 不強制指定尺寸，讓瀏覽器使用鏡頭的原生解析度
+  // 骨架座標映射會自動讀取 video.elt.videoWidth/videoHeight 來修正
   video.hide();
 
   // ── ml5 存在性檢查 ───────────────────────────────────────
@@ -254,18 +261,36 @@ function _drawError(msg) {
 // ══════════════════════════════════════════════════════════════
 
 function _computeLayout() {
-  // 攝影機面板寬度：視窗寬度的 44%，最大 520px
-  CAM_W = min(floor(width * 0.44), 520);
-  CAM_H = floor(CAM_W * 0.75);  // 4:3 比例（640:480）
-  CAM_X = 18;
+  // 判斷行動裝置：寬度不足 650 或縱向模式（height > width）
+  isMobile = width < 650 || height > width;
+  BOTTOM_H = isMobile ? 54 : 68;
 
-  // 垂直置中攝影機於左側面板
-  const availH = height - HEADER_H - BOTTOM_H;
-  CAM_Y = HEADER_H + floor((availH - CAM_H - 48) / 2); // 48px 留給手勢標籤
+  if (isMobile) {
+    // ── 行動版：攝影機在上，遊戲面板在下 ──────────────────
+    CAM_W = min(width - 24, 400);
+    CAM_H = floor(CAM_W * 0.65); // 略扁，留更多空間給下方
+    CAM_X = floor((width - CAM_W) / 2);
+    CAM_Y = HEADER_H + 4;
 
-  // 右側遊戲面板
-  PANEL_X = CAM_X + CAM_W + 20;
-  PANEL_W = width - PANEL_X - 16;
+    PANEL_X = 0;
+    PANEL_W = width;
+    PANEL_Y = CAM_Y + CAM_H + 50; // 攝影機下方留 50px 給手勢標籤
+  } else {
+    // ── 桌機版：左右並排 ────────────────────────────────
+    CAM_W = min(floor(width * 0.44), 520);
+    CAM_H = floor(CAM_W * 0.75);
+    CAM_X = 18;
+    const availH = height - HEADER_H - BOTTOM_H;
+    CAM_Y = HEADER_H + floor((availH - CAM_H - 48) / 2);
+
+    PANEL_X = CAM_X + CAM_W + 20;
+    PANEL_W = width - PANEL_X - 16;
+    PANEL_Y = HEADER_H;
+  }
+
+  // 預設與 CAM 區域相同，會在 _drawCameraPanel 依實際解析度修正
+  CAM_DRAW_X = CAM_X; CAM_DRAW_Y = CAM_Y;
+  CAM_DRAW_W = CAM_W; CAM_DRAW_H = CAM_H;
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -360,17 +385,32 @@ function _drawCameraPanel() {
   noStroke();
   rect(0, HEADER_H, CAM_X + CAM_W + 10, height - HEADER_H);
 
+  // ── 取得實際鏡頭解析度，計算正確的長寬比 ───────────────
+  // videoWidth/videoHeight 是鏡頭的原生解析度（可能是 1280×720 或其他）
+  // 如果直接用 CAM_W × CAM_H 顯示，影像會被拉伸/壓縮
+  const vW = (video.elt && video.elt.videoWidth)  || 640;
+  const vH = (video.elt && video.elt.videoHeight) || 480;
+  const vidAspect = vW / vH;
+
+  // 在保留區域（CAM_W × CAM_H）內，算出不變形的實際繪製大小
+  CAM_DRAW_W = CAM_W;
+  CAM_DRAW_H = floor(CAM_W / vidAspect);
+  if (CAM_DRAW_H > CAM_H) {     // 若高度超過保留區 → 改以高度為準
+    CAM_DRAW_H = CAM_H;
+    CAM_DRAW_W = floor(CAM_H * vidAspect);
+  }
+  // 置中放置（letterbox / pillarbox 效果）
+  CAM_DRAW_X = CAM_X + floor((CAM_W - CAM_DRAW_W) / 2);
+  CAM_DRAW_Y = CAM_Y + floor((CAM_H - CAM_DRAW_H) / 2);
+
   // ── 攝影機影像（水平鏡像顯示）──────────────────────────
-  // readyState >= 2 = HAVE_CURRENT_DATA（有可用畫面）
   const videoReady = video && video.elt && video.elt.readyState >= 2;
 
   if (videoReady) {
     push();
-    // 水平翻轉：讓使用者看到「鏡中自己」
-    // translate 到攝影機右端，scale(-1,1) 後影像會向左展開
-    translate(CAM_X + CAM_W, CAM_Y);
+    translate(CAM_DRAW_X + CAM_DRAW_W, CAM_DRAW_Y);
     scale(-1, 1);
-    image(video, 0, 0, CAM_W, CAM_H);
+    image(video, 0, 0, CAM_DRAW_W, CAM_DRAW_H);
     pop();
   } else {
     // 攝影機未就緒時的佔位框
@@ -408,13 +448,16 @@ function _drawCameraPanel() {
 function _drawHandSkeleton(hand) {
   if (!hand.landmarks) return;
 
-  const lm  = hand.landmarks;
-  const vW  = video.width  || 640; // 原始影像寬度
-  const vH  = video.height || 480; // 原始影像高度
+  const lm = hand.landmarks;
 
-  // 座標映射函式（含水平翻轉）
-  const mx = (x) => CAM_X + CAM_W - (x / vW) * CAM_W; // 水平翻轉
-  const my = (y) => CAM_Y + (y / vH) * CAM_H;
+  // 使用鏡頭原生解析度作為座標基準（不是 video.width/height 的顯示大小）
+  // 這樣才能讓骨架精準疊在影像上，手機鏡頭解析度不同也不會偏移
+  const vW = (video.elt && video.elt.videoWidth)  || 640;
+  const vH = (video.elt && video.elt.videoHeight) || 480;
+
+  // 映射到實際影像繪製區域（已考慮 letterbox 偏移 + 長寬比）
+  const mx = (x) => CAM_DRAW_X + CAM_DRAW_W - (x / vW) * CAM_DRAW_W; // 水平翻轉
+  const my = (y) => CAM_DRAW_Y + (y / vH) * CAM_DRAW_H;
 
   // 從 landmark 陣列取出畫布座標
   const getPos = (i) => {
@@ -588,8 +631,7 @@ function _drawLoading() {
 
 function _drawIdle() {
   const cx     = PANEL_X + PANEL_W / 2;
-  const panelH = height - HEADER_H - BOTTOM_H;
-  const startY = HEADER_H;
+  const startY = PANEL_Y;
 
   // 大標題
   fill(C.TEXT);
@@ -677,7 +719,7 @@ function _drawActionCard(x, y, w, h, title, desc, accentColor, isActive) {
 
 function _drawLearn() {
   const cx      = PANEL_X + PANEL_W / 2;
-  const startY  = HEADER_H + 12;
+  const startY  = PANEL_Y + 12;
   const total   = LEARN_SEQUENCE.length;
   const target  = LEARN_SEQUENCE[learnIdx];
   const g       = GESTURES[target];
@@ -820,14 +862,13 @@ function _drawLearn() {
 
 function _drawGame() {
   const cx     = PANEL_X + PANEL_W / 2;
-  const startY = HEADER_H + 10;
+  const startY = PANEL_Y + 6;
 
-  // ── 頂部：計時器 / 分數 / Combo ─────────────────────────
+  // ── 頂部：計時器 / Combo ────────────────────────────────
   const timerColor = timeLeft <= 15 ? C.DANGER : (timeLeft <= 30 ? C.WARNING : C.TEXT);
 
-  // 計時器（左）
   fill(timerColor);
-  textSize(30);
+  textSize(28);
   textStyle(BOLD);
   textAlign(LEFT, TOP);
   const mins = floor(timeLeft / 60);
@@ -835,11 +876,10 @@ function _drawGame() {
   text(`${nf(mins, 1)}:${nf(secs, 2)}`, PANEL_X + 8, startY + 2);
   textStyle(NORMAL);
 
-  // Combo（右）
   if (combo >= 2) {
     const comboColor = combo >= 5 ? C.DANGER : (combo >= 3 ? C.WARNING : C.SUCCESS);
     fill(comboColor);
-    textSize(20);
+    textSize(18);
     textStyle(BOLD);
     textAlign(RIGHT, TOP);
     text(`× ${combo} COMBO`, PANEL_X + PANEL_W - 8, startY + 6);
@@ -847,33 +887,25 @@ function _drawGame() {
   }
 
   // 計時進度條
-  const barY = startY + 46;
+  const barY = startY + 42;
   fill(C.CARD);
-  rect(PANEL_X, barY, PANEL_W, 6, 3);
+  rect(PANEL_X, barY, PANEL_W, 5, 2);
   fill(timerColor);
-  rect(PANEL_X, barY, PANEL_W * (timeLeft / 90), 6, 3);
+  rect(PANEL_X, barY, PANEL_W * (timeLeft / 90), 5, 2);
 
   // ── 題目卡片 ────────────────────────────────────────────
   const g    = GESTURES[currentTarget] || GESTURES.UNKNOWN;
   const gC   = _parseHex(g.color);
-  const cardW = min(PANEL_W - 24, 340);
+  const cardW = min(PANEL_W - 20, 360);
   const cardX = cx - cardW / 2;
-  const cardY = barY + 14;
-  const cardH = 220;
+  const cardY = barY + 10;
+  const cardH = isMobile ? 200 : 230;
 
-  // 回饋時改變卡片背景顏色
   let cardBg     = C.CARD;
   let cardBorder = color(gC[0], gC[1], gC[2]);
   let borderW    = 1.5;
-  if (correctFeedback) {
-    cardBg = '#0A2E1A';
-    cardBorder = color(C.SUCCESS);
-    borderW = 3;
-  } else if (wrongFeedback) {
-    cardBg = '#2A1010';
-    cardBorder = color(C.DANGER);
-    borderW = 3;
-  }
+  if (correctFeedback) { cardBg = '#0A2E1A'; cardBorder = color(C.SUCCESS); borderW = 3; }
+  else if (wrongFeedback) { cardBg = '#2A1010'; cardBorder = color(C.DANGER); borderW = 3; }
 
   fill(cardBg);
   stroke(cardBorder);
@@ -881,82 +913,94 @@ function _drawGame() {
   rect(cardX, cardY, cardW, cardH, 12);
   noStroke();
 
-  // 說明文字
-  fill(C.MUTED);
-  textSize(14);
-  textAlign(CENTER, TOP);
-  text('請做出這個手勢', cx, cardY + 14);
-
-  // 大 Emoji
-  textSize(72);
-  textAlign(CENTER, CENTER);
-  text(g.emoji, cx, cardY + 110);
-
-  // 手勢名稱
-  fill(color(gC[0], gC[1], gC[2]));
-  textSize(24);
+  // ── 問題文字（教育核心）──────────────────────────────
+  fill(C.TEXT);
+  textSize(isMobile ? 17 : 20);
   textStyle(BOLD);
   textAlign(CENTER, TOP);
-  text(g.label, cx, cardY + 172);
+  text(currentQuestion.text || '請做出下方手勢', cx, cardY + 14);
+  textStyle(NORMAL);
+
+  // 說明/提示文字
+  if (currentQuestion.note) {
+    fill(C.MUTED);
+    textSize(12);
+    text(currentQuestion.note, cx, cardY + (isMobile ? 42 : 46));
+  }
+
+  // 分隔線
+  const divY = cardY + (isMobile ? 62 : 72);
+  stroke(C.BORDER);
+  strokeWeight(1);
+  line(cardX + 20, divY, cardX + cardW - 20, divY);
+  noStroke();
+
+  // 答案手勢（Emoji + 名稱 + 操作說明）
+  fill(C.MUTED);
+  textSize(11);
+  textAlign(CENTER, TOP);
+  text('做出這個手勢', cx, divY + 6);
+
+  textSize(isMobile ? 52 : 60);
+  textAlign(CENTER, CENTER);
+  text(g.emoji, cx, divY + (isMobile ? 46 : 56));
+
+  fill(color(gC[0], gC[1], gC[2]));
+  textSize(isMobile ? 16 : 18);
+  textStyle(BOLD);
+  textAlign(CENTER, TOP);
+  text(g.label, cx, cardY + cardH - (isMobile ? 40 : 46));
   textStyle(NORMAL);
 
   fill(C.MUTED);
-  textSize(13);
-  text(g.instruction, cx, cardY + 200);
+  textSize(11);
+  text(g.instruction, cx, cardY + cardH - (isMobile ? 22 : 24));
 
-  // ── 回饋訊息（卡片下方）────────────────────────────────
-  const fbY = cardY + cardH + 14;
+  // ── 回饋訊息 ────────────────────────────────────────────
+  const fbY = cardY + cardH + 10;
 
   if (correctFeedback) {
     fill(C.SUCCESS);
-    textSize(20);
+    textSize(18);
     textStyle(BOLD);
     textAlign(CENTER, TOP);
     text('🎉 答對了！', cx, fbY);
     textStyle(NORMAL);
-
-    // 加分顯示
     const bonus = combo >= 5 ? 10 : (combo >= 3 ? 5 : 0);
     fill(C.SUCCESS);
-    textSize(15);
-    text(`+${10 + bonus} 分${bonus > 0 ? ` (Combo 加成 +${bonus})` : ''}`, cx, fbY + 30);
+    textSize(13);
+    text(`+${10 + bonus} 分${bonus > 0 ? `（Combo +${bonus}）` : ''}`, cx, fbY + 26);
 
   } else if (wrongFeedback) {
     fill(C.DANGER);
-    textSize(18);
+    textSize(17);
     textStyle(BOLD);
     textAlign(CENTER, TOP);
     text('❌ 不對喔！', cx, fbY);
     textStyle(NORMAL);
-
-    const wg  = GESTURES[wrongGuessName] || GESTURES.UNKNOWN;
+    const wg = GESTURES[wrongGuessName] || GESTURES.UNKNOWN;
     fill(C.MUTED);
-    textSize(13);
-    text(`你比的是 ${wg.emoji} ${wg.label}，需要 ${g.emoji} ${g.label}`, cx, fbY + 30);
-    text('Combo 已歸零，繼續加油！', cx, fbY + 52);
+    textSize(12);
+    text(`你比的是 ${wg.emoji} ${wg.label}，需要 ${g.emoji} ${g.label}`, cx, fbY + 26);
 
   } else {
-    // 正常狀態：顯示即時辨識
     const ig  = GESTURES[instantGesture.gesture] || GESTURES.UNKNOWN;
     const igC = _parseHex(ig.color);
-
     fill(C.MUTED);
-    textSize(13);
+    textSize(12);
     textAlign(CENTER, TOP);
-    text('目前辨識：', cx - 42, fbY + 4);
-
+    text('目前辨識：', cx - 38, fbY + 4);
     fill(igC[0], igC[1], igC[2]);
-    textSize(16);
-    text(`${ig.emoji} ${ig.label}`, cx + 38, fbY + 2);
+    textSize(15);
+    text(`${ig.emoji} ${ig.label}`, cx + 32, fbY + 2);
   }
 
-  // ── 正確率（底部）──────────────────────────────────────
   if (totalAttempts > 0) {
     const acc = floor((correctCount / totalAttempts) * 100);
     fill(C.MUTED);
-    textSize(12);
+    textSize(11);
     textAlign(CENTER, BOTTOM);
-    text(`正確率 ${acc}%  （${correctCount} / ${totalAttempts} 題）`, cx, height - BOTTOM_H - 8);
+    text(`正確率 ${acc}%（${correctCount} / ${totalAttempts} 題）`, cx, height - BOTTOM_H - 6);
   }
 }
 
@@ -966,7 +1010,7 @@ function _drawGame() {
 
 function _drawResult() {
   const cx = PANEL_X + PANEL_W / 2;
-  const sy = HEADER_H + 18;
+  const sy = PANEL_Y + 14;
 
   // 標題
   fill(C.TEXT);
@@ -1215,7 +1259,7 @@ function _handleWrong(wrongGesture) {
   wrongFeedbackTimer = millis();
 }
 
-/** 隨機選擇下一道題（避免與當前題目重複） */
+/** 隨機選擇下一道題（避免與當前題目重複），並抽取對應的教育題目 */
 function _pickNewTarget() {
   let newTarget;
   let tries = 0;
@@ -1224,6 +1268,14 @@ function _pickNewTarget() {
     tries++;
   } while (newTarget === currentTarget && tries < 15);
   currentTarget = newTarget;
+
+  // 從該手勢的題庫中隨機選一題
+  const g = GESTURES[currentTarget];
+  if (g && g.questions && g.questions.length > 0) {
+    currentQuestion = g.questions[floor(random(g.questions.length))];
+  } else {
+    currentQuestion = { text: `請做出 ${g.label} 手勢`, note: '' };
+  }
 }
 
 // ══════════════════════════════════════════════════════════════
