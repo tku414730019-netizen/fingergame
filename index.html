@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SignPlay — Gesture-Based Interactive Learning Game</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!--
+    ╔══════════════════════════════════════════════════════════╗
+    ║   SignPlay — 手勢互動學習遊戲                             ║
+    ║   使用說明：                                              ║
+    ║   1. 用本地伺服器開啟（需要 webcam 權限）                 ║
+    ║      python -m http.server 8080                          ║
+    ║      然後瀏覽 http://localhost:8080                       ║
+    ║   2. 允許瀏覽器使用攝影機                                 ║
+    ║   3. 確保環境光線充足                                     ║
+    ╚══════════════════════════════════════════════════════════╝
+  -->
+
+  <!-- 外部函式庫 ─────────────────────────────────────────── -->
+  <!-- p5.js：負責畫布繪圖與主迴圈 -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+
+  <!-- ml5.js：負責手部關鍵點辨識 (Handpose) -->
+  <!-- 使用 0.12.2 版，API 穩定且文件完整 -->
+  <script src="https://unpkg.com/ml5@0.12.2/dist/ml5.min.js"></script>
+
+  <!-- 專案檔案（載入順序很重要！）────────────────────────── -->
+  <!-- 1. 手勢常數定義 -->
+  <script src="gestures.js"></script>
+
+  <!-- 2. 手勢辨識核心類別 -->
+  <script src="GestureClassifier.js"></script>
+
+  <!-- 3. 主程式（p5.js sketch）-->
+  <script src="sketch.js"></script>
+
+</body>
+</html>
