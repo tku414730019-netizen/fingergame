@@ -35,6 +35,9 @@
 //   全域變數宣告
 // ══════════════════════════════════════════════════════════════
 
+// ── 診斷用：若初始化失敗，這裡存放錯誤訊息 ──────────────────
+let appError = null;
+
 // ── p5.js 物件 ───────────────────────────────────────────────
 let video;         // webcam 影像捕捉
 let handpose;      // ml5 Handpose 實例
@@ -115,37 +118,51 @@ const C = {
  */
 function setup() {
   createCanvas(windowWidth, windowHeight);
-  frameRate(30); // 固定 30 FPS，確保防抖動計算穩定
+  frameRate(30);
+  textFont('sans-serif'); // 明確指定字型，避免部分系統找不到預設字型
 
-  // 計算版面尺寸
   _computeLayout();
-
-  // 初始化手勢分類器
   classifier = new GestureClassifier();
 
-  // ── 建立 webcam 捕捉 ─────────────────────────────────────
-  // createCapture(VIDEO) 會請求瀏覽器的攝影機權限
-  video = createCapture(VIDEO, () => {
-    console.log('✅ webcam 已就緒');
-  });
+  // ── webcam ────────────────────────────────────────────────
+  video = createCapture(VIDEO, () => { console.log('✅ webcam 就緒'); });
   video.size(640, 480);
-  video.hide(); // 隱藏預設 <video> DOM，改由 p5 畫布繪製
+  video.hide();
 
-  // ── 載入 ml5 Handpose 模型 ───────────────────────────────
-  // 注意：不使用 flipHorizontal，改為手動翻轉，確保跨版本相容性
-  const mlOptions = { maxNumHands: 1 };
+  // ── ml5 存在性檢查 ───────────────────────────────────────
+  if (typeof ml5 === 'undefined') {
+    appError = [
+      '⚠️  ml5.js 未載入',
+      '',
+      '可能原因：',
+      '  • 廣告攔截器（uBlock 等）封鎖了 unpkg.com',
+      '  • 網路無法連到外部 CDN',
+      '',
+      '解決方法：',
+      '  1. 暫時停用廣告攔截器，重新整理頁面',
+      '  2. 或把 ml5.min.js 下載到本機（見下方說明）',
+      '',
+      '本機方法：',
+      '  下載 https://unpkg.com/ml5@0.12.2/dist/ml5.min.js',
+      '  存成 SignPlay/ml5.min.js',
+      '  修改 index.html 的 src 為 ./ml5.min.js',
+    ].join('\n');
+    console.error('❌ ml5 is not defined');
+    return;
+  }
 
-  handpose = ml5.handPose(video, mlOptions, () => {
-    modelLoaded = true;
-    console.log('🤖 Handpose 模型載入完成！');
-  });
-
-  // 監聽每幀的預測結果
-  handpose.on('predict', (results) => {
-    currentHands = results;
-  });
-
-  console.log('🎮 SignPlay 啟動！');
+  // ── 初始化 Handpose ──────────────────────────────────────
+  try {
+    handpose = ml5.handpose(video, { maxNumHands: 1 }, () => {
+      modelLoaded = true;
+      console.log('🤖 Handpose 載入完成');
+    });
+    handpose.on('predict', (results) => { currentHands = results; });
+    console.log('🎮 SignPlay 啟動');
+  } catch (e) {
+    appError = '⚠️  ml5.handPose 初始化失敗\n\n' + e.message;
+    console.error('❌ ml5 初始化錯誤:', e);
+  }
 }
 
 /**
@@ -162,32 +179,74 @@ function windowResized() {
 function draw() {
   background(C.BG);
 
-  // ── 1. 處理手勢辨識 ────────────────────────────────────
-  _processGesture();
-
-  // ── 2. 繪製固定 UI 元素 ────────────────────────────────
-  _drawHeader();
-  _drawCameraPanel();
-  _drawConfidenceBar();
-
-  // ── 3. 根據遊戲狀態繪製右側主畫面 ──────────────────────
-  if (!modelLoaded) {
-    _drawLoading();
-  } else if (gameState === 'IDLE')   {
-    _drawIdle();
-  } else if (gameState === 'LEARN')  {
-    _drawLearn();
-  } else if (gameState === 'GAME')   {
-    _drawGame();
-  } else if (gameState === 'RESULT') {
-    _drawResult();
+  // ── 若有初始化錯誤，直接顯示錯誤訊息 ──────────────────
+  if (appError) {
+    _drawError(appError);
+    return;
   }
 
-  // ── 4. 遊戲邏輯更新（計時、回饋動畫等）─────────────────
-  _updateGameLogic();
+  // ── 重置文字狀態，防止 textStyle(BOLD) 被留下 ──────────
+  textStyle(NORMAL);
+  textFont('sans-serif');
 
-  // ── 5. 處理手勢輸入觸發的動作 ───────────────────────────
-  _handleGestureInput();
+  try {
+    // 1. 處理手勢辨識
+    _processGesture();
+
+    // 2. 繪製固定 UI 元素
+    _drawHeader();
+    _drawCameraPanel();
+    _drawConfidenceBar();
+
+    // 3. 根據遊戲狀態繪製右側主畫面
+    if (!modelLoaded) {
+      _drawLoading();
+    } else if (gameState === 'IDLE')   { _drawIdle();
+    } else if (gameState === 'LEARN')  { _drawLearn();
+    } else if (gameState === 'GAME')   { _drawGame();
+    } else if (gameState === 'RESULT') { _drawResult();
+    }
+
+    // 4. 遊戲邏輯更新
+    _updateGameLogic();
+
+    // 5. 手勢輸入處理
+    _handleGestureInput();
+
+  } catch (e) {
+    // 若 draw() 內部出現錯誤，顯示在畫面上供除錯
+    console.error('draw() 發生錯誤:', e);
+    _drawError('draw() 執行錯誤\n\n' + e.name + ': ' + e.message + '\n\n請開啟 F12 Console 查看詳細資訊');
+  }
+}
+
+/**
+ * 在畫面上顯示錯誤訊息（紅色框框）
+ */
+function _drawError(msg) {
+  // 背景
+  fill('#1A0A0A');
+  noStroke();
+  rect(0, 0, width, height);
+
+  // 錯誤標題
+  fill('#EF4444');
+  textFont('sans-serif');
+  textStyle(BOLD);
+  textSize(18);
+  textAlign(LEFT, TOP);
+  text('❌ SignPlay 初始化失敗', 40, 60);
+  textStyle(NORMAL);
+
+  // 錯誤訊息
+  fill('#FECACA');
+  textSize(14);
+  text(msg, 40, 110);
+
+  // 底部提示
+  fill('#6B7280');
+  textSize(12);
+  text('請按 F12 開啟開發者工具 → Console 頁籤查看完整錯誤訊息', 40, height - 40);
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -302,7 +361,10 @@ function _drawCameraPanel() {
   rect(0, HEADER_H, CAM_X + CAM_W + 10, height - HEADER_H);
 
   // ── 攝影機影像（水平鏡像顯示）──────────────────────────
-  if (video && video.loadedmetadata) {
+  // readyState >= 2 = HAVE_CURRENT_DATA（有可用畫面）
+  const videoReady = video && video.elt && video.elt.readyState >= 2;
+
+  if (videoReady) {
     push();
     // 水平翻轉：讓使用者看到「鏡中自己」
     // translate 到攝影機右端，scale(-1,1) 後影像會向左展開
