@@ -1304,8 +1304,8 @@ function _handleGestureInput() {
 
   // ── LEARN 狀態 ────────────────────────────────────────
   else if (gameState === 'LEARN') {
-    // 比 2 → 先確認再跳到遊戲
-    if (gesture === 'TWO') {
+    // 比 2 跳到遊戲模式——但如果當前要練的手勢就是 TWO，要讓它先判斷答對
+    if (gesture === 'TWO' && LEARN_SEQUENCE[learnIdx] !== 'TWO') {
       _enterConfirm('GAME', 'LEARN');
       acted = true;
     }
