@@ -80,6 +80,7 @@ const CORRECT_DURATION    = 700; // ms
 let wrongFeedback       = false;
 let wrongFeedbackTimer  = 0;
 let wrongGuessName      = ''; // 玩家比了什麼
+let lastWrongGesture    = ''; // 上一次觸發答錯的手勢，防止同一手勢重複計次
 const WRONG_DURATION    = 1300; // ms
 
 // ── Result Mode 狀態 ─────────────────────────────────────────
@@ -1229,8 +1230,8 @@ function _updateGameLogic() {
     if (now - learnSuccessTimer > LEARN_SUCCESS_DELAY) {
       learnIdx++;
       if (learnIdx >= LEARN_SEQUENCE.length) {
-        // 全部學完 → 進入遊戲
-        _enterGame();
+        // 全部學完 → 先問確認，取消就回 IDLE（學習已結束，無從返回）
+        _enterConfirm('GAME', 'IDLE');
       } else {
         learnSuccessTimer = 0;
         classifier.reset();
@@ -1297,6 +1298,9 @@ function _handleGestureInput() {
     } else if (gesture === 'FIST') {
       // 取消：回到來源狀態
       gameState = confirmFrom;
+      // 若從 LEARN 跳出再取消回來，重置定時器
+      // 否則 learnSuccessTimer 還在跑，會自動跳下一關
+      if (confirmFrom === 'LEARN') learnSuccessTimer = 0;
       classifier.reset();
       acted = true;
     }
@@ -1317,9 +1321,12 @@ function _handleGestureInput() {
   else if (gameState === 'GAME') {
     if (correctFeedback || wrongFeedback) return;
     if (gesture === currentTarget) {
+      lastWrongGesture = ''; // 答對時清除上次答錯記錄
       _handleCorrect();
       acted = true;
-    } else {
+    } else if (gesture !== lastWrongGesture) {
+      // 只有當手勢「換了」才算一次新的答錯
+      // 避免玩家保持同一錯誤手勢被連續扣分
       _handleWrong(gesture);
       acted = true;
     }
@@ -1369,10 +1376,9 @@ function _handleCorrect() {
 /** 答錯處理 */
 function _handleWrong(wrongGesture) {
   totalAttempts++;
-  combo = 0;            // 連擊歸零
-  wrongGuessName = wrongGesture;
-
-  // 觸發視覺回饋
+  combo = 0;
+  wrongGuessName   = wrongGesture;
+  lastWrongGesture = wrongGesture; // 記住，同一手勢下一幀不再重複計次
   wrongFeedback      = true;
   wrongFeedbackTimer = millis();
 }
@@ -1436,6 +1442,7 @@ function _enterGame() {
   totalAttempts   = 0;
   correctFeedback = false;
   wrongFeedback   = false;
+  lastWrongGesture = '';
   classifier.reset();
   _pickNewTarget();
   console.log('→ GAME');
