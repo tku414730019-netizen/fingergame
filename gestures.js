@@ -26,7 +26,7 @@ const GESTURES = {
   FIST: {
     name: 'FIST', label: '握拳',
     instruction: '五根手指全部向掌心握緊',
-    emoji: '✊', color: '#A855F7',
+    emoji: '👊', color: '#A855F7',
     questions: [
       { text: '3 − 3 = ?',      note: '答案是零，握緊拳頭不伸出手指' },
       { text: '0 × 99 = ?',     note: '任何數乘以零都等於零' },
