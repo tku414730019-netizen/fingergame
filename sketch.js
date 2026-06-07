@@ -859,7 +859,7 @@ function _drawLearn() {
   fill(C.MUTED);
   textSize(11);
   textAlign(CENTER, BOTTOM);
-  text('比 ✌️ 跳過學習，直接進入遊戲模式', cx, height - BOTTOM_H - 8);
+  text('完成所有手勢後自動進入遊戲模式', cx, height - BOTTOM_H - 8);
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -1121,7 +1121,7 @@ function _drawStatCard(x, y, w, h, label, value, accentColor) {
 
 /**
  * 確認彈窗：進入目標模式前讓玩家確認
- * 👌 OK = 確認進入   ✊ 握拳 = 取消
+ * 👌 OK = 確認進入   👊 握拳 = 取消
  */
 function _drawConfirm() {
   const cx = PANEL_X + PANEL_W / 2;
@@ -1202,7 +1202,7 @@ function _drawConfirm() {
   noStroke();
 
   fill(fistActive ? C.TEXT : C.TEXT);
-  textSize(24); text('✊', mx + 24 + btnW + btnW / 2, btnY + 8);
+  textSize(24); text('👊', mx + 24 + btnW + btnW / 2, btnY + 8);
   textSize(14); textStyle(BOLD);
   fill(fistActive ? '#FCA5A5' : C.DANGER);
   text('握拳  取消', mx + 24 + btnW + btnW / 2, btnY + 38);
@@ -1303,17 +1303,14 @@ function _handleGestureInput() {
   }
 
   // ── LEARN 狀態 ────────────────────────────────────────
+  // 在學習模式中，任何手勢只用來比對當前步驟的目標。
+  // 不做任何模式切換，避免練習中意外跳出。
   else if (gameState === 'LEARN') {
-    // 比 2 跳到遊戲模式——但如果當前要練的手勢就是 TWO，要讓它先判斷答對
-    if (gesture === 'TWO' && LEARN_SEQUENCE[learnIdx] !== 'TWO') {
-      _enterConfirm('GAME', 'LEARN');
-      acted = true;
-    }
-    // 比出目標手勢（且尚未在成功等待中）
-    else if (learnSuccessTimer === 0 && gesture === LEARN_SEQUENCE[learnIdx]) {
+    if (learnSuccessTimer === 0 && gesture === LEARN_SEQUENCE[learnIdx]) {
       learnSuccessTimer = now;
       acted = true;
     }
+    // 其他手勢（包含 TWO）在 LEARN 模式中一律忽略，不觸發任何導航
   }
 
   // ── GAME 狀態 ─────────────────────────────────────────
